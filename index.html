@@ -124,6 +124,22 @@
                 Generate Keys
             </h2>
             
+            <div class="mb-6 p-4 bg-[#161616] rounded-xl border border-[#333]">
+                <h3 class="font-semibold mb-3 text-orange-400">Generate with Name (Optional)</h3>
+                <div class="flex gap-3 flex-wrap">
+                    <input type="text" id="keyName" placeholder="Key name (e.g., John's Key, VIP Access)"
+                           class="flex-1 min-w-[200px] px-4 py-3 bg-[#202020] rounded-xl border border-[#333] focus:outline-none focus:border-orange-500 transition">
+                    <input type="number" id="namedKeyAmount" placeholder="Amount" min="1" max="100" value="1"
+                           class="w-24 px-4 py-3 bg-[#202020] rounded-xl border border-[#333] focus:outline-none focus:border-orange-500 transition">
+                    <button onclick="generateNamedKeys()"
+                            class="px-6 py-3 bg-gradient-to-r from-orange-500 to-pink-500 text-white font-semibold rounded-xl hover:brightness-110 transition press-effect">
+                        🏷️ Generate Named Key
+                    </button>
+                </div>
+                <p class="text-xs text-gray-500 mt-2">Name your keys to easily identify who they belong to</p>
+            </div>
+
+            <h3 class="font-semibold mb-3">Quick Generate (Unnamed)</h3>
             <div class="flex flex-wrap gap-3 mb-4">
                 <button onclick="generateKeys(1)" class="px-6 py-3 bg-white text-black font-semibold rounded-xl hover:brightness-110 transition press-effect">
                     Generate 1
@@ -221,6 +237,7 @@
 
     <script>
         let keys = new Set();
+        let keyNames = {}; // Store key names: { "XFREE-XXXX": "John's Key" }
         let totalGenerated = 0;
         let config = {
             token: '',
@@ -253,17 +270,22 @@
         function loadKeys() {
             const saved = localStorage.getItem('xfree_keys');
             const savedTotal = localStorage.getItem('xfree_total');
+            const savedNames = localStorage.getItem('xfree_key_names');
             if (saved) {
                 keys = new Set(JSON.parse(saved));
             }
             if (savedTotal) {
                 totalGenerated = parseInt(savedTotal);
             }
+            if (savedNames) {
+                keyNames = JSON.parse(savedNames);
+            }
         }
 
         function saveKeys() {
             localStorage.setItem('xfree_keys', JSON.stringify([...keys]));
             localStorage.setItem('xfree_total', totalGenerated.toString());
+            localStorage.setItem('xfree_key_names', JSON.stringify(keyNames));
         }
 
         function saveGitHubConfig() {
@@ -348,6 +370,44 @@
                 segments.push(segment);
             }
             return 'XFREE-' + segments.join('-');
+        }
+
+        async function generateNamedKeys() {
+            const name = document.getElementById('keyName').value.trim();
+            const amount = parseInt(document.getElementById('namedKeyAmount').value);
+
+            if (!name) {
+                showAlert('Please enter a name for the key', 'error');
+                return;
+            }
+
+            if (isNaN(amount) || amount < 1 || amount > 100) {
+                showAlert('Please enter a valid amount (1-100)', 'error');
+                return;
+            }
+
+            const startSize = keys.size;
+            const generatedKeys = [];
+
+            for (let i = 0; i < amount; i++) {
+                const key = generateRandomKey();
+                keys.add(key);
+                const fullName = amount > 1 ? `${name} #${i + 1}` : name;
+                keyNames[key] = fullName;
+                generatedKeys.push(key);
+            }
+
+            const newKeys = keys.size - startSize;
+            totalGenerated += newKeys;
+            saveKeys();
+            updateDisplay();
+
+            // Clear input
+            document.getElementById('keyName').value = '';
+            document.getElementById('namedKeyAmount').value = '1';
+
+            showAlert(`Generated ${newKeys} key(s) named "${name}". Syncing to GitHub...`, 'info');
+            await syncToGitHub();
         }
 
         async function generateKeys(count) {
@@ -438,9 +498,21 @@
 
         function deleteKey(key) {
             keys.delete(key);
+            delete keyNames[key]; // Remove the name too
             saveKeys();
             updateDisplay();
             showAlert('Key deleted. Remember to sync to GitHub!', 'success');
+        }
+
+        function editKeyName(key) {
+            const currentName = keyNames[key] || '';
+            const newName = prompt('Enter new name for this key:', currentName);
+            if (newName !== null && newName.trim() !== '') {
+                keyNames[key] = newName.trim();
+                saveKeys();
+                updateDisplay();
+                showAlert('Key name updated!', 'success');
+            }
         }
 
         function copyKey(key) {
@@ -498,10 +570,26 @@
                 keyList.innerHTML = '';
                 [...keys].forEach(key => {
                     const item = document.createElement('div');
-                    item.className = 'key-item flex justify-between items-center p-4 bg-[#161616] rounded-xl border border-[#333]';
+                    item.className = 'key-item flex flex-col md:flex-row justify-between items-start md:items-center p-4 bg-[#161616] rounded-xl border border-[#333] gap-3';
+                    
+                    const keyName = keyNames[key];
+                    const nameDisplay = keyName ? `<div class="text-orange-400 text-sm font-semibold mb-1">🏷️ ${keyName}</div>` : '';
+                    
                     item.innerHTML = `
-                        <span class="font-mono text-sm text-gray-300 flex-1">${key}</span>
-                        <div class="flex gap-2">
+                        <div class="flex-1">
+                            ${nameDisplay}
+                            <span class="font-mono text-sm text-gray-300">${key}</span>
+                        </div>
+                        <div class="flex gap-2 flex-wrap">
+                            ${keyName ? `
+                            <button onclick="editKeyName('${key}')" class="px-4 py-2 bg-blue-500 text-white font-semibold rounded-lg hover:brightness-110 transition press-effect text-sm">
+                                ✏️ Edit Name
+                            </button>
+                            ` : `
+                            <button onclick="editKeyName('${key}')" class="px-4 py-2 bg-gray-600 text-white font-semibold rounded-lg hover:brightness-110 transition press-effect text-sm">
+                                🏷️ Add Name
+                            </button>
+                            `}
                             <button onclick="copyKey('${key}')" class="px-4 py-2 bg-white text-black font-semibold rounded-lg hover:brightness-110 transition press-effect text-sm">
                                 📋 Copy
                             </button>
